@@ -14,10 +14,20 @@
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
+    .no-fav-box { display: inline-block; margin: 0.5em 0 1em; padding: 0.6em 1em; border: 2px solid #888; border-radius: 6px; background: #f3f3f3; cursor: pointer; }
+    .greyed-out { opacity: 0.35; pointer-events: none; }
     .source-name { font-size: 1.4em; font-weight: bold; margin-bottom: 0.5em; }
     .dim-def { font-size: 0.8em; color: #555; font-weight: normal; }
     .who-for { font-size: 1.3em; text-align: left; display: inline-block; margin-bottom: 0.8em; }
     .who-for div { margin: 0.2em 0; }
+    .rank-list { list-style: decimal; text-align: left; max-width: 640px; margin: 0.5em auto; padding-left: 2.2em; }
+    .rank-list li { background: #f3f3f3; border: 1px solid #ccc; border-radius: 6px; padding: 0.4em 0.6em; margin: 0.25em 0; display: flex; align-items: center; gap: 0.5em; cursor: grab; }
+    .rank-list li.dragging { opacity: 0.4; }
+    .rank-list .lbl { flex: 1; }
+    .rank-list button { padding: 0 0.5em; }
+    .rank-end { font-size: 0.85em; color: #555; }
+    .check-list { text-align: left; max-width: 640px; margin: 0.5em auto; }
+    .check-list label { display: block; margin: 0.35em 0; }
     .defs { text-align: left; max-width: 700px; margin: auto; }
     .defs li { margin-bottom: 0.6em; }
     .demo-form label { display: block; margin-top: 1em; text-align: left; }

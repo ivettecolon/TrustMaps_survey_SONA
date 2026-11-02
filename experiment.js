@@ -13,7 +13,7 @@
                d) the same, ONE PAGE PER source you didn't choose (why not)
      Part 3. Change in trust over the past year, per source (Yes -> why)
      Part 4. AI use (Yes -> for what; No -> why not)
-     Demographics, save via PHP, end
+     Demographics, save via PHP (or as a local CSV for test workers), end
    ========================================================================= */
 
 // -------------------------------------------------------------------------
@@ -52,7 +52,7 @@ const PUBLIC_FIGURES = [
 // Same order as FIXED_SOURCES, then the public figures' general labels.
 const FIXED_GENERAL = [
   "Medical doctors in general", "Lawyers in general", "Therapists in general", "Professors or teachers in general",
-  "Parents in general", "Friends in general", "Spouses or partners in general",
+  "Parents in general", "Close friends in general", "Spouses or partners in general",
   "Online forums (e.g., Reddit) in general",
   "Social media posts (e.g., TikTok / Instagram post) in general",
   "AI chatbots (e.g., ChatGPT, Claude, Gemini) in general",
@@ -82,8 +82,8 @@ const TOPICS = ALL_TOPICS.filter((t) => t.core || !USE_CORE_TOPICS_ONLY);
 // `q` is the question asked in Part 1. `yes` / `no` are the options in the Part 2 "reasons" lists.
 const DIMENSIONS = [
   { key: "expertise", name: "Expertise",
-    definition: "How much knowledge or expertise this source has.",
-    q: "In general, how much <b>expertise</b> does this source have?",
+    definition: "How much knowledge or expertise this source has in their field.",
+    q: "How much <b>expertise</b> does this source have in their field?",
     yes: "They have expertise / knowledge", no: "They lack expertise / knowledge" },
   { key: "accountability", name: "Accountability",
     definition: "How able you are to hold this source accountable for the advice they give you.",
@@ -166,6 +166,12 @@ if (TEST_MODE) {
   SOURCES = SOURCES.slice(0, 3);
 }
 
+// CSV test mode: open the survey with ?workerID=oceane_test or ?workerID=manit_test to save the data
+// as a CSV on this computer instead of sending it to the PHP script.
+const CSV_TEST_WORKERS = ["oceane_test", "manit_test"];
+const CSV_TEST_MODE = CSV_TEST_WORKERS.includes(
+  jsPsych.data.getURLVariable("workerID") || jsPsych.data.getURLVariable("workerId"));
+
 // Part 3 sources (in general wording); in test mode, the same number as Parts 2-3
 const CHANGE_SOURCES = CHANGE_SOURCES_ALL.slice(0, SOURCES.length);
 
@@ -229,7 +235,7 @@ timeline.push({
   stimulus: `
     <h2>Instructions</h2>
     <p>In this survey you will think about people and sources you might go to for advice.</p>
-    <p>First, you will rate each source on ${DIMENSIONS.length} dimensions (1 = Not at all, 7 = Extremely).
+    <p>First, you will rate each source for several different qualities (1 = Does not have that quality at all, 7 = Has that quality extremely).<br>
        Here is what each dimension means:</p>
     ${definitionsHtml}
     <p>Afterwards, you will tell us which sources you would trust for advice on
@@ -268,7 +274,7 @@ part1Order.forEach((item) => {
       labels: LIKERT_LABELS,
       required: true,
     })).concat(hasCheck ? [{
-      prompt: `To show you are reading carefully, please select ${ATTENTION_CHECK_ANSWER} for this question.`,
+      prompt: `To show you are <b>reading carefully</b>, please select ${ATTENTION_CHECK_ANSWER} for this question.`,
       name: "attn_check",
       labels: LIKERT_LABELS,
       required: true,
@@ -346,15 +352,8 @@ const whoForTopic = (topic) => `
   </div>`;
 
 // Checkboxes: which sources would you trust for this topic?
-function checklistTrial(topic, state, sources, withCheck = false) {
-  // Attention check: an extra option, inserted at a random position, that must be the ONLY one ticked.
+function checklistTrial(topic, state, sources) {
   const options = sources.map((s, i) => ({ name: `src_${i}`, value: esc(s), text: fmt(s) }));
-  if (withCheck) {
-    options.splice(Math.floor(Math.random() * (options.length + 1)), 0, {
-      name: "attn_check", value: "attn_check",
-      text: "<b>Attention check:</b> to show you are reading carefully, select only this option and no others",
-    });
-  }
   return {
     type: jsPsychSurveyHtmlForm,
     preamble: `${whoForTopic(topic)}
@@ -367,7 +366,6 @@ function checklistTrial(topic, state, sources, withCheck = false) {
     data: { task: "topic_checklist", topic: topic.key, topic_label: topic.label },
     on_finish: (d) => {
       const chosen = Object.values(d.response);
-      if (withCheck) d.attn_check_passed = chosen.length === 1 && chosen[0] === "attn_check";
       state.trusted = sources.filter((s) => chosen.includes(s));
       state.untrusted = sources.filter((s) => !chosen.includes(s));
       state.idx = { trust: 0, distrust: 0 }; state.last = { trust: null, distrust: null };   // reset the per-source reasons loops
@@ -521,9 +519,6 @@ function reasonsLoop(topic, state, kind) {
   };
 }
 
-// One randomly chosen topic block gets an attention check in its checklist (-1 = none)
-const attentionTopicIdx = NUM_ATTENTION_CHECKS > 0 ? Math.floor(Math.random() * TOPICS.length) : -1;
-
 maybeShuffle(TOPICS, RANDOMIZE_TOPIC_ORDER).forEach((topic, i) => {
   const state = { trusted: [], untrusted: [], idx: { trust: 0, distrust: 0 }, last: { trust: null, distrust: null } };
   const sources = maybeShuffle(SOURCES, RANDOMIZE_CHECKLIST_ORDER);
@@ -540,7 +535,7 @@ maybeShuffle(TOPICS, RANDOMIZE_TOPIC_ORDER).forEach((topic, i) => {
       choices: ["Continue"],
       data: { task: "topic_intro", topic: topic.key },
     },
-    checklistTrial(topic, state, sources, i === attentionTopicIdx),
+    checklistTrial(topic, state, sources),
     rankingTrial(topic, sources),
     reasonsLoop(topic, state, "trust"),
     reasonsLoop(topic, state, "distrust")
@@ -652,7 +647,7 @@ timeline.push({
 });
 
 // -------------------------------------------------------------------------
-// Save data via PHP (waits for the server before moving on)
+// Save data via PHP (waits for the server before moving on), or as a local CSV in CSV test mode
 // -------------------------------------------------------------------------
 const SAVED_TASKS = [
   "rating", "topic_checklist", "topic_ranking",
@@ -661,25 +656,72 @@ const SAVED_TASKS = [
   "ai_use_yesno", "ai_use_for_what", "ai_use_why_not", "demographics",
 ];
 
+const buildCsv = () => jsPsych.data
+  .get()
+  .filterCustom((t) => SAVED_TASKS.includes(t.task))
+  .ignore(["response", "stimulus"])
+  .csv();
+
+// A web page can't write to the Desktop by itself. Chrome and Edge can open a save window that starts
+// on the Desktop; other browsers download the file to their usual downloads folder.
+async function saveCsvLocally(csv, filename) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        startIn: "desktop",
+        types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+      });
+      const file = await handle.createWritable();
+      await file.write(csv);
+      await file.close();
+      return "ok_local";
+    } catch (err) {
+      if (err.name === "AbortError") throw err;   // the save window was cancelled
+      console.error("Save window failed, downloading instead:", err);
+    }
+  }
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  link.download = filename;
+  link.click();
+  return "ok_download";
+}
+
 timeline.push({
   type: jsPsychCallFunction,
   async: true,
   func: (done) => {
+    const filename = `${participantId}_${Date.now()}.csv`;
+
+    // The save window can only open from a click, so test workers get a button.
+    // The survey doesn't move on until the file is saved.
+    if (CSV_TEST_MODE) {
+      jsPsych.getDisplayElement().innerHTML = `
+        <h2>Test mode: save your data</h2>
+        <p>Click below to save your responses as a CSV file.</p>
+        <button type="button" class="jspsych-btn" id="save-csv">Save CSV</button>
+        <p id="save-csv-status"></p>`;
+      document.getElementById("save-csv").addEventListener("click", () => {
+        saveCsvLocally(buildCsv(), filename)
+          .then((status) => done({ save_status: status }))
+          .catch(() => {
+            document.getElementById("save-csv-status").textContent =
+              "The file was not saved. Click the button to try again.";
+          });
+      });
+      return;
+    }
+
     jsPsych.getDisplayElement().innerHTML =
       "<p>Saving your responses, please wait...</p>";
-
-    const csv = jsPsych.data
-      .get()
-      .filterCustom((t) => SAVED_TASKS.includes(t.task))
-      .ignore(["response", "stimulus"])
-      .csv();
 
     fetch(SAVE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        filename: `${participantId}_${Date.now()}.csv`,
-        filedata: csv,
+        filename,
+        filedata: buildCsv(),
       }),
     })
       .then((res) => done({ save_status: res.ok ? "ok" : `http_${res.status}` }))
